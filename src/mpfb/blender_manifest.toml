@@ -14,5 +14,5 @@ license = [
 
 [permissions]
 files = "Load and save data"
-network = "(optional) Interact with local instance of MakeHuman"
+network = "(optional) Interact with local instance of MakeHuman, local remote control server for MCP clients"
 

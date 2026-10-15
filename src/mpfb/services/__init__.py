@@ -45,12 +45,19 @@ from .humanservice import HumanService
 # Will depend on a lot of stuff, makes sense to import last
 from .randomizationservice import RandomizationService
 
+# JSON facade over everything above, and the socket server exposing it (used by the MCP server)
+from .garmentservice import GarmentService
+from .agentservice import AgentService
+from .remotecontrolservice import RemoteControlService
+
 SERVICES = {
+    "AgentService": AgentService,
     "AnimationService": AnimationService,
     "AssetService": AssetService,
     "ClothesService": ClothesService,
     "ExportService": ExportService,
     "FaceService": FaceService,
+    "GarmentService": GarmentService,
     "HumanService": HumanService,
     "LocationService": LocationService,
     "LogService": LogService,
@@ -61,6 +68,7 @@ SERVICES = {
     "NodeTreeService": NodeTreeService,
     "ObjectService": ObjectService,
     "RandomizationService": RandomizationService,
+    "RemoteControlService": RemoteControlService,
     "RigService": RigService,
     "SocketService": SocketService,
     "SystemService": SystemService,
@@ -93,6 +101,9 @@ __all__ = [
     "ClothesService",
     "HumanService",
     "RandomizationService",
+    "AgentService",
+    "GarmentService",
+    "RemoteControlService",
     "ASSET_LIBRARY_SECTIONS",
     "SERVICES"
     ]

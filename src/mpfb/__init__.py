@@ -249,14 +249,42 @@ def register():
     from .services import SERVICES
     MPFB_CONTEXTUAL_INFORMATION["SERVICES"] = SERVICES
 
+    _start_remote_control_if_enabled()
+
     _LOG.time("Number of milliseconds to run entire register() method:")
     _LOG.info("MPFB initialization has finished.")
+
+
+def _start_remote_control_if_enabled():
+    """Start the remote control server for MCP clients if the user enabled that in the preferences."""
+    try:
+        if not get_preference("mpfb_remote_autostart") or bpy.app.background:
+            return
+    except Exception:  # pylint: disable=W0718
+        return
+    if not bpy.app.online_access:
+        _LOG.warn("Remote control autostart is enabled, but online access is not allowed")
+        return
+
+    def _start():
+        from .services import RemoteControlService
+        try:
+            RemoteControlService.start(int(get_preference("mpfb_remote_port") or 9877))
+        except OSError as err:
+            _LOG.error("Could not start remote control", err)
+        return None
+
+    # Wait for Blender to finish starting up before opening the socket.
+    bpy.app.timers.register(_start, first_interval=1.0)
 
 
 def unregister():
     """Deconstruct all loaded blenderish classes"""
 
     global _LOG  # pylint: disable=W0603,W0602
+
+    from .services import RemoteControlService
+    RemoteControlService.stop()
 
     _LOG.debug("About to unregister classes")
     global ClassManager  # pylint: disable=W0603,W0602

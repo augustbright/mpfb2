@@ -14,6 +14,10 @@ See the homepage for [docs](https://static.makehumancommunity.org/mpfb/docs.html
 
 For devs, there are also some technical reference documentation in [the docs folder](docs/index.md)
 
+## Remote control and MCP
+
+MPFB can be driven by AI assistants through an [MCP server](mcp_server/README.md), see [remote control](docs/remote-control.md).
+
 ## MPFB vs MakeHuman, MPFB vs MHX
 
 If you have previous experience with MakeHuman and/or MHX, you might be interested in the FAQs explaining the similarities and differences:

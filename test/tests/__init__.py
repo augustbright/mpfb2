@@ -61,11 +61,13 @@ def dynamic_import(absolute_package_str, key):
 MPFB_CONTEXTUAL_INFORMATION = dynamic_import("mpfb", "MPFB_CONTEXTUAL_INFORMATION")
 
 # The following are thus the same classes as would be found in the files in the src/mpfb/services directory.
+AgentService = MPFB_CONTEXTUAL_INFORMATION["SERVICES"]["AgentService"]
 AnimationService = MPFB_CONTEXTUAL_INFORMATION["SERVICES"]["AnimationService"]
 AssetService = MPFB_CONTEXTUAL_INFORMATION["SERVICES"]["AssetService"]
 ClothesService = MPFB_CONTEXTUAL_INFORMATION["SERVICES"]["ClothesService"]
 ExportService = MPFB_CONTEXTUAL_INFORMATION["SERVICES"]["ExportService"]
 FaceService = MPFB_CONTEXTUAL_INFORMATION["SERVICES"]["FaceService"]
+GarmentService = MPFB_CONTEXTUAL_INFORMATION["SERVICES"]["GarmentService"]
 HumanService = MPFB_CONTEXTUAL_INFORMATION["SERVICES"]["HumanService"]
 LocationService = MPFB_CONTEXTUAL_INFORMATION["SERVICES"]["LocationService"]
 LogService = MPFB_CONTEXTUAL_INFORMATION["SERVICES"]["LogService"]
@@ -76,6 +78,7 @@ NodeService = MPFB_CONTEXTUAL_INFORMATION["SERVICES"]["NodeService"]
 NodeTreeService = MPFB_CONTEXTUAL_INFORMATION["SERVICES"]["NodeTreeService"]
 ObjectService = MPFB_CONTEXTUAL_INFORMATION["SERVICES"]["ObjectService"]
 RandomizationService = MPFB_CONTEXTUAL_INFORMATION["SERVICES"]["RandomizationService"]
+RemoteControlService = MPFB_CONTEXTUAL_INFORMATION["SERVICES"]["RemoteControlService"]
 RigService = MPFB_CONTEXTUAL_INFORMATION["SERVICES"]["RigService"]
 SocketService = MPFB_CONTEXTUAL_INFORMATION["SERVICES"]["SocketService"]
 SystemService = MPFB_CONTEXTUAL_INFORMATION["SERVICES"]["SystemService"]

@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mpfb-mcp"
+version = "0.1.0"
+description = "MCP server that drives MPFB (MakeHuman Plugin For Blender) through its remote control socket"
+requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
+dependencies = ["mcp[cli]>=1.2.0,<2"]
+
+[project.scripts]
+mpfb-mcp = "mpfb_mcp.server:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mpfb_mcp*"]

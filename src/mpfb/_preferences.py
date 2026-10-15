@@ -63,6 +63,18 @@ class MpfbPreferences(bpy.types.AddonPreferences):
         default=False
     )
 
+    mpfb_remote_autostart: bpy.props.BoolProperty(
+        name="Start remote control on startup",
+        description="Start the local remote control server (used by the MPFB MCP server) when Blender starts. It only listens on 127.0.0.1 and needs online access to be allowed",
+        default=False
+    )
+
+    mpfb_remote_port: bpy.props.IntProperty(
+        name="Remote control port",
+        description="TCP port of the remote control server on 127.0.0.1",
+        default=9877, min=1024, max=65535
+    )
+
     mpfb_shelf_label: bpy.props.StringProperty(
         name="Shelf label",
         description="If you want to use a different name for the MPFB shelf tab, you can enter any non-empty string here",
@@ -80,5 +92,7 @@ class MpfbPreferences(bpy.types.AddonPreferences):
         layout.prop(self, 'mpfb_second_root')
         layout.prop(self, 'mpfb_codechecks')
         layout.prop(self, 'mpfb_shelf_label')
+        layout.prop(self, 'mpfb_remote_autostart')
+        layout.prop(self, 'mpfb_remote_port')
         layout.prop(self, 'mh_user_data')
         layout.prop(self, 'mh_auto_user_data')
