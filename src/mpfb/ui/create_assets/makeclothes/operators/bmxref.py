@@ -6,6 +6,7 @@ from bpy.props import StringProperty
 from .....services import LogService
 from .....services import LocationService
 from .....services import ObjectService
+from .....services import ClothesService
 from .....entities.meshcrossref import MeshCrossRef
 from ..... import ClassManager
 from ....mpfboperator import MpfbOperator
@@ -34,18 +35,8 @@ class MPFB_OT_BasemeshXrefOperator(MpfbOperator):
             self.report({'ERROR'}, "No base mesh selected.")
             return {'CANCELLED'}
 
-        cache_dir = LocationService.get_user_cache("basemesh_xref")
-
-        if os.path.exists(cache_dir):
-            shutil.rmtree(cache_dir)
-
-        if not os.path.exists(cache_dir):
-            os.makedirs(cache_dir)
-
+        cache_dir = ClothesService.build_basemesh_xref_cache(basemesh)
         _LOG.debug("Cache dir", cache_dir)
-
-        xref = MeshCrossRef(basemesh, after_modifiers=False, build_faces_by_group_reference=True, cache_dir=cache_dir, write_cache=True, read_cache=False)
-        _LOG.debug("Xref", xref)
 
         self.report({'INFO'}, "The xref cache was created.")
         return {'FINISHED'}

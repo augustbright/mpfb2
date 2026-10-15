@@ -724,8 +724,7 @@ class ClothesService:
             elif n != verts_per_face:
                 report["all_faces_same_type"] = False
                 report["warnings"].append("Clothes mesh has mixed tri and quad faces; triangulate or convert to quads before use")
-                report["all_checks_ok"] = False
-                return report
+                break
 
         xref = MeshCrossRef(mesh_object)
         # MeshCrossRef only leaves these two at None when it reads them back from a cache, which needs
@@ -761,6 +760,8 @@ class ClothesService:
         all_ok = report["is_valid_object"] and report["has_any_vertices"] and report["has_any_vgroups"]
         all_ok = all_ok and report["all_verts_have_max_one_vgroup"] and report["all_verts_have_min_one_vgroup"] and report["all_verts_belong_to_faces"]
         all_ok = all_ok and report["clothes_groups_exist_on_basemesh"] and report["objs_same_scale"]
+        # Matching needs one face type throughout, so a mixed mesh is not ok either.
+        all_ok = all_ok and report["all_faces_same_type"]
         report["all_checks_ok"] = all_ok
 
         cache_dir = LocationService.get_user_cache("basemesh_xref")
@@ -971,3 +972,81 @@ class ClothesService:
 
         delete_group = basemesh.vertex_groups.new(name=group_name)
         delete_group.add(face_verts, 1.0, "REPLACE")
+
+    @staticmethod
+    def build_basemesh_xref_cache(basemesh: bpy.types.Object) -> str:
+        """(Re)build the basemesh cross reference cache that writing MHCLO files depends on.
+
+        Returns:
+            str: The cache directory.
+        """
+        import shutil
+        cache_dir = LocationService.get_user_cache("basemesh_xref")
+        if os.path.exists(cache_dir):
+            shutil.rmtree(cache_dir)
+        os.makedirs(cache_dir)
+        MeshCrossRef(basemesh, after_modifiers=False, build_faces_by_group_reference=True, cache_dir=cache_dir,
+                     write_cache=True, read_cache=False)
+        return cache_dir
+
+    @staticmethod
+    def write_mhclo_asset(basemesh: bpy.types.Object, clothes: bpy.types.Object, file_name: str, *,
+                          properties_dict: dict[str, Any] | None = None, delete_group: str | None = None,
+                          allow_exact: bool = True, save_material: bool = True) -> str:
+        """Match the clothes against the basemesh and write the MHCLO (or .proxy), OBJ and, when the clothes have a
+        MakeSkin material, the MHMAT file.
+
+        Args:
+            basemesh: The basemesh the clothes were modeled on.
+            clothes: The clothes mesh. Must pass mesh_is_valid_as_clothes().
+            file_name: Target path, ending in .mhclo or .proxy.
+            properties_dict: Asset metadata (author, description, name, homepage, license, uuid).
+            delete_group: Name of the basemesh vertex group hidden under the clothes, if any.
+            allow_exact: Allow the exact vertex matching strategy.
+            save_material: Also write the material when it is a MakeSkin material.
+
+        Returns:
+            str: The absolute path of the written file.
+
+        Raises:
+            ValueError: If the clothes are not valid, the xref cache is missing, matching fails or the target would
+                overwrite a file that is not an asset file.
+        """
+        check = ClothesService.mesh_is_valid_as_clothes(clothes, basemesh)
+        if not check["all_checks_ok"]:
+            failed = [key for key, value in check.items() if value is False]
+            raise ValueError("The object is not valid as clothes, failed checks: " + ", ".join(failed))
+
+        if not os.path.exists(LocationService.get_user_cache("basemesh_xref")):
+            raise ValueError("No basemesh xref cache available, build it with build_basemesh_xref_cache()")
+
+        file_name = os.path.abspath(file_name)
+        if not (file_name.endswith(".mhclo") or file_name.endswith(".proxy")) and os.path.exists(file_name):
+            raise ValueError("Refusing to overwrite existing file without mhclo extension: " + file_name)
+
+        mhclo = ClothesService.create_mhclo_from_clothes_matching(basemesh, clothes, properties_dict=properties_dict,
+                                                                  delete_group=delete_group, allow_exact=allow_exact)
+
+        from .materialservice import MaterialService  # pylint: disable=C0415
+        from ..entities.material.makeskinmaterial import MakeSkinMaterial  # pylint: disable=C0415
+
+        mat_type = None
+        if MaterialService.has_materials(clothes):
+            mat_type = MaterialService.identify_material(MaterialService.get_material(clothes))
+
+        matbn = None
+        if save_material and mat_type == "makeskin" and ".proxy" not in file_name:
+            material = MakeSkinMaterial()
+            material.populate_from_object(clothes)
+            dirn = os.path.dirname(file_name)
+            bn = os.path.basename(file_name).replace(".mhclo", "")
+            matbn = bn + ".mhmat"
+            image_file_error = material.check_that_all_textures_are_saved(clothes, dirn, bn)
+            if image_file_error is not None:
+                raise ValueError(image_file_error)
+            material.export_to_disk(os.path.join(dirn, matbn))
+
+        mhclo.material = matbn
+        reference_scale = ClothesService.get_reference_scale(basemesh)
+        mhclo.write_mhclo(file_name, reference_scale=reference_scale, also_export_mhmat=matbn is not None)
+        return file_name

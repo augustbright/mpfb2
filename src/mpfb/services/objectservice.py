@@ -799,7 +799,17 @@ class ObjectService:
         bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
 
         loaded_object = typing.cast(list, context.selected_objects)[0]  # pylint: disable=E1136
+        ObjectService.ensure_render_uv_layer(loaded_object)
         return loaded_object
+
+    @staticmethod
+    def ensure_render_uv_layer(blender_object: bpy.types.Object) -> None:
+        """Make sure one UV map is used for rendering. The OBJ importer of Blender 5.x leaves active_render off on
+        the imported map, and then EEVEE/Cycles sample every texture at UV (0, 0): skins and clothes look flat
+        and alpha-mapped hair, brows and lashes disappear."""
+        mesh = blender_object.data
+        if isinstance(mesh, bpy.types.Mesh) and mesh.uv_layers and not any(l.active_render for l in mesh.uv_layers):
+            mesh.uv_layers[0].active_render = True
 
     @staticmethod
     def save_wavefront_file(filepath: str, mesh_object: bpy.types.Object, context: bpy.types.Context | None = None) -> None:
