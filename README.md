@@ -18,6 +18,10 @@ For devs, there are also some technical reference documentation in [the docs fol
 
 MPFB can be driven by AI assistants through an [MCP server](mcp_server/README.md), see [remote control](docs/remote-control.md).
 
+## Houdini
+
+The [houdini](houdini/README.md) folder is a Houdini port of MPFB's character generation: `mpfb::human`, `mpfb::fit_asset` and `mpfb::assemble` SOPs built from the same data, matching MPFB in Blender vertex for vertex.
+
 ## MPFB vs MakeHuman, MPFB vs MHX
 
 If you have previous experience with MakeHuman and/or MHX, you might be interested in the FAQs explaining the similarities and differences:
