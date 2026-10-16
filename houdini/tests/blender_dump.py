@@ -21,5 +21,23 @@ def world_coords(obj, disable_masks=True):
     return co @ mw[:3, :3].T + mw[:3, 3]
 body = world_coords(bpy.data.objects["H"])
 clothes = world_coords(bpy.data.objects[asset])
-np.savez(out, body=body, clothes=clothes)
+extra = {}
+if CASE.get("rig"):
+    rig = bpy.data.objects[A.call("add_rig", {"rig": CASE["rig"]})["rig"]]
+    names = [b.name for b in rig.data.bones]
+    heads = np.array([list(b.head_local) for b in rig.data.bones])
+    tails = np.array([list(b.tail_local) for b in rig.data.bones])
+    mats = np.array([[list(r) for r in b.matrix_local.to_3x3()] for b in rig.data.bones])
+    def weights(obj):
+        w = np.zeros((len(obj.data.vertices), len(names)))
+        gi = {g.index: g.name for g in obj.vertex_groups}
+        for v in obj.data.vertices:
+            for g in v.groups:
+                name = gi.get(g.group)
+                if name in names:
+                    w[v.index, names.index(name)] = g.weight
+        return w
+    extra = dict(bone_names=np.array(names), heads=heads, tails=tails, mats=mats,
+                 body_w=weights(bpy.data.objects["H"]), clothes_w=weights(bpy.data.objects[asset]))
+np.savez(out, body=body, clothes=clothes, **extra)
 print("DUMPED", body.shape, clothes.shape)

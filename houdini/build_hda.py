@@ -31,6 +31,68 @@ mpfb.cook_assemble(node.parent(), node.geometry(), inputs[0].geometry() if input
 """
 
 
+CAPTURE_COOK = """import mpfb_houdini.sop as mpfb
+mpfb.cook_capture(hou.pwd().parent(), hou.pwd().geometry())
+"""
+SKELETON_COOK = """import mpfb_houdini.sop as mpfb
+node = hou.pwd()
+mpfb.cook_skeleton(node.parent(), node.geometry(), node.inputs()[0].geometry())
+"""
+
+
+def rig_parms():
+    rig = hou.StringParmTemplate("rig", "Rig", 1, default_value=("game_engine",), menu_type=hou.menuType.Normal,
+                                 item_generator_script="import mpfb_houdini.sop as s\nreturn s.rig_menu()",
+                                 item_generator_script_language=hou.scriptLanguage.Python,
+                                 help="MPFB's standard rigs; game_engine has Unreal-style names for game engines")
+    influences = hou.IntParmTemplate("influences", "Max Influences", 1, default_value=(4,), min=0, max=16,
+                                     help="Bones per point, renormalised (glTF uses 4). 0 keeps all")
+    strip = hou.ToggleParmTemplate("strip", "Remove MPFB Attributes", default_value=True,
+                                   help="Drop the mpfb_* bookkeeping attributes from the rigged character; the glTF "
+                                        "Character ROP stalls on the large ones")
+    return [rig, influences, strip]
+
+
+def build_rig():
+    """mpfb::rig: character in, captured character (output 0) and rest skeleton (output 1) out."""
+    geo = hou.node("/obj").createNode("geo", "mpfb_build_rig")
+    sub = geo.createNode("subnet", "rig")
+    capture = sub.createNode("python", "capture")
+    capture.parm("python").set(CAPTURE_COOK)
+    capture.setInput(0, sub.indirectInputs()[0])
+    pack = sub.createNode("captureattribpack", "pack")
+    pack.setInput(0, capture)
+    clean = sub.createNode("attribdelete", "clean")
+    clean.setInput(0, pack)
+    for parm in ("ptdel", "primdel", "dtldel"):
+        clean.parm(parm).set("mpfb_*")
+    switch = sub.createNode("switch", "strip")
+    switch.setInput(0, pack)
+    switch.setInput(1, clean)
+    switch.parm("input").setExpression('ch("../strip")')
+    skeleton = sub.createNode("python", "skeleton")
+    skeleton.parm("python").set(SKELETON_COOK)
+    skeleton.setInput(0, sub.indirectInputs()[0])
+    out0 = sub.createNode("output", "output0")
+    out0.parm("outputidx").set(0)
+    out0.setInput(0, switch)
+    out1 = sub.createNode("output", "output1")
+    out1.parm("outputidx").set(1)
+    out1.setInput(0, skeleton)
+    out0.setDisplayFlag(True)
+    sub.layoutChildren()
+    hda = sub.createDigitalAsset(name="mpfb::rig::1.0", hda_file_name=OTL, description="MPFB Rig",
+                                 min_num_inputs=1, max_num_inputs=1)
+    definition = hda.type().definition()
+    group = definition.parmTemplateGroup()
+    for template in rig_parms():
+        group.append(template)
+    definition.setParmTemplateGroup(group)
+    definition.setIcon("SOP_kinefx-rigdoctor")
+    definition.save(OTL)
+    geo.destroy()
+
+
 def assemble_parms():
     return [hou.ToggleParmTemplate("mask_body", "Hide Body Under Assets", default_value=True,
                                    help="Remove body faces listed in the assets' delete_verts (MPFB delete groups)")]
@@ -131,6 +193,7 @@ if os.path.exists(OTL):
 build("human", "MPFB Human", HUMAN_COOK, human_parms(), 0)
 build("fit_asset", "MPFB Fit Asset", FIT_COOK, fit_parms(), 1)
 build("assemble", "MPFB Assemble", ASSEMBLE_COOK, assemble_parms(), 2)
+build_rig()
 print("built", OTL, [d.nodeTypeName() for d in hou.hda.definitionsInFile(OTL)])
 sys.stdout.flush()
 os._exit(0)  # skip Houdini's teardown (the HoudiniMCP startup plugin crashes there)

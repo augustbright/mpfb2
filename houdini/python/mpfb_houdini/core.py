@@ -399,3 +399,160 @@ def read_mhmat(path):
                 value = candidate if os.path.exists(candidate) else value
             out[key] = value
     return out
+
+
+# ----------------------------------------------------------------------------------------------------------------
+# Rigs (port of entities/rig.py placement and RigService/ClothesService weights)
+
+# Blender (Z up, -Y forward) <-> MakeHuman/Houdini (Y up, +Z forward)
+TO_BLENDER = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]])
+FROM_BLENDER = TO_BLENDER.T
+
+
+def rig_names():
+    folder = os.path.join(data_root(), "rigs", "standard")
+    return sorted(f[4:-5] for f in os.listdir(folder) if f.startswith("rig.") and f.endswith(".json"))
+
+
+@functools.lru_cache(maxsize=16)
+def load_rig(name):
+    with open(os.path.join(data_root(), "rigs", "standard", "rig.%s.json" % name), "r", encoding="utf-8") as f:
+        definition = json.load(f)
+    return {k: v for k, v in definition.items() if isinstance(v, dict) and "head" in v}
+
+
+@functools.lru_cache(maxsize=16)
+def load_rig_weights(name):
+    """{bone: (vertex indices, weights)} for the base mesh, from weights.<rig>.json."""
+    path = os.path.join(data_root(), "rigs", "standard", "weights.%s.json" % name)
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return _weights_dict(data.get("weights", data))
+
+
+def _weights_dict(raw):
+    out = {}
+    for bone, pairs in raw.items():
+        if pairs:
+            arr = np.asarray(pairs, dtype=np.float64)
+            out[bone] = (arr[:, 0].astype(np.int64), arr[:, 1])
+        else:
+            out[bone] = (np.zeros(0, dtype=np.int64), np.zeros(0))
+    return out
+
+
+def _blender_bone_matrix(head, tail, roll):
+    """Blender's bone rest orientation (columns: bone X, Y, Z) from head, tail and roll, in Blender space: the
+    smallest rotation taking +Y onto the bone, then the roll about it (BKE vec_roll_to_mat3)."""
+    nor = tail - head
+    nor = nor / np.linalg.norm(nor)
+    x, y, z = nor
+    theta = 1.0 + y
+    theta_alt = x * x + z * z
+    if theta > 1e-5 or theta_alt > 1e-9:
+        if theta <= 1e-5:
+            theta = theta_alt * 0.5 + theta_alt * theta_alt * 0.125
+        b = np.array([[1 - x * x / theta, x, -x * z / theta],
+                      [-x, y, -z],
+                      [-x * z / theta, z, 1 - z * z / theta]])
+    else:
+        b = np.array([[-1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, 1.0]])
+    c, s = np.cos(roll), np.sin(roll)
+    k = np.array([[0, -nor[2], nor[1]], [nor[2], 0, -nor[0]], [-nor[1], nor[0], 0]])
+    r = np.eye(3) * c + s * k + (1 - c) * np.outer(nor, nor)
+    return r @ b
+
+
+def build_skeleton(rig, positions):
+    """Bones of a rig fitted to the human, parents first: [{name, parent, head, tail, matrix}] in MakeHuman/Houdini
+    space; matrix columns are the bone's X, Y (head to tail) and Z axes, as Blender would orient them."""
+    definition = load_rig(rig)
+    joints = {"joint-" + k: v for k, v in joint_centres(positions).items()}
+
+    def locate(end):
+        strategy = end["strategy"]
+        if strategy == "CUBE" and end.get("cube_name") in joints:
+            return joints[end["cube_name"]]
+        if strategy == "VERTEX":
+            return positions[end["vertex_index"]]
+        if strategy == "MEAN" and end.get("vertex_indices"):
+            return positions[np.asarray(end["vertex_indices"])].mean(axis=0)
+        if strategy == "XYZ" and len(end.get("vertex_indices", [])) >= 3:
+            idx = end["vertex_indices"]
+            return np.array([positions[idx[i]][i] for i in range(3)])
+        # Defaults are stored in Blender space at the 0.1 scale.
+        return FROM_BLENDER @ np.asarray(end["default_position"], dtype=np.float64)
+
+    bones, done = [], set()
+    pending = list(definition)
+    while pending:
+        progressed = False
+        for name in list(pending):
+            parent = definition[name].get("parent") or ""
+            if parent and parent not in done and parent in definition:
+                continue
+            info = definition[name]
+            head, tail = locate(info["head"]), locate(info["tail"])
+            matrix = FROM_BLENDER @ _blender_bone_matrix(TO_BLENDER @ head, TO_BLENDER @ tail, float(info.get("roll", 0.0)))
+            bones.append({"name": name, "parent": parent if parent in definition else "", "head": head, "tail": tail,
+                          "matrix": matrix})
+            done.add(name)
+            pending.remove(name)
+            progressed = True
+        if not progressed:
+            raise ValueError("Rig %s has a parent cycle or missing parents: %s" % (rig, pending))
+    return bones
+
+
+def body_weights(rig):
+    """Dense (vertices, bones) weight matrix of the base mesh for a rig, and the bone names (columns)."""
+    names = [b for b in load_rig(rig)]
+    w = np.zeros((len(basemesh()["positions"]), len(names)))
+    raw = load_rig_weights(rig)
+    for j, name in enumerate(names):
+        if name in raw:
+            idx, val = raw[name]
+            w[idx, j] = val
+    return w, names
+
+
+def asset_weights(info, rig, body=None):
+    """Weights of an MHCLO asset for a rig (ClothesService.set_up_rigging): interpolated from the three body
+    vertices each asset vertex is bound to, then replaced per bone by the asset's .mhw file(s) if present."""
+    body, names = body if body is not None else body_weights(rig)
+    v, bw = info["verts"], info["weights"]
+    total = bw.sum(axis=1, keepdims=True)
+    total[total == 0] = 1.0
+    w = (body[v[:, 0]] * bw[:, :1] + body[v[:, 1]] * bw[:, 1:2] + body[v[:, 2]] * bw[:, 2:3]) / total
+    # Barycentric weights may lie outside 0..1; Blender drops tiny values and clamps vertex group weights.
+    w[w <= 0.001] = 0.0
+    np.clip(w, 0.0, 1.0, out=w)
+    base = os.path.splitext(os.path.realpath(info["path"]))[0]
+    for suffix in [None, "force", rig]:
+        path = base + ("." + suffix if suffix else "") + ".mhw"
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            for group, (idx, val) in _weights_dict(data.get("weights", data)).items():
+                bone = _match_bone(group, names)
+                if bone is not None:
+                    j = names.index(bone)
+                    w[:, j] = 0.0
+                    w[idx[idx < len(w)], j] = val[idx < len(w)]
+    return w, names
+
+
+def _match_bone(group, names):
+    """RigService._map_weight_groups_to_bones: same name, DEF- toggled, or a no-toes rig's common toe."""
+    toggled = group[4:] if group.startswith("DEF-") else "DEF-" + group
+    for candidate in (group, toggled):
+        if candidate in names:
+            return candidate
+    import re
+    match = re.fullmatch(r"^(?:DEF-)?toe\d-\d.([LR])$", group)
+    if match:
+        side = match[1]
+        for candidate in ("toe." + side, "DEF-toe." + side, "toe1-1." + side):
+            if candidate in names and not any(n.startswith("toe") and n != candidate and n.endswith(side) for n in names):
+                return candidate
+    return None

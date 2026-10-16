@@ -88,6 +88,10 @@ def _asset_topology(path):
         geo = _mesh_geometry(mesh)
         geo.addAttrib(hou.attribType.Prim, "shop_materialpath", "")
         geo.addAttrib(hou.attribType.Prim, "name", "")
+        # Which asset and which of its vertices each point is, for mpfb::rig (asset weights).
+        geo.addAttrib(hou.attribType.Point, "mpfb_vertex", -1)
+        geo.setPointIntAttribValuesFromString("mpfb_vertex", np.arange(len(mesh["positions"]), dtype=np.int32).tobytes())
+        geo.addAttrib(hou.attribType.Prim, "mpfb_asset", "")
         _TOPOLOGY[key] = geo
     return _TOPOLOGY[key]
 
@@ -124,7 +128,7 @@ def cook_human(node, geo):
     geo.merge(_human_topology(helpers))
     geo.setPointFloatAttribValuesFromString("P", _float_bytes(pos if helpers else pos[_body_points()]))
     index = np.arange(len(pos), dtype=np.int32) if helpers else _body_points().astype(np.int32)
-    geo.addAttrib(hou.attribType.Point, "mpfb_index", 0)
+    geo.addAttrib(hou.attribType.Point, "mpfb_index", -1)
     geo.setPointIntAttribValuesFromString("mpfb_index", index.tobytes())
     # Every base mesh vertex (helpers included), so fit_asset works whether or not helpers are output.
     geo.addArrayAttrib(hou.attribType.Global, "mpfb_positions", hou.attribData.Float)
@@ -166,6 +170,7 @@ def cook_fit_asset(node, geo, human):
     geo.setPointFloatAttribValuesFromString("P", _float_bytes(pos))
     _set_string_prims(geo, "name", info["name"])
     _set_string_prims(geo, "shop_materialpath", material_path(node))
+    _set_string_prims(geo, "mpfb_asset", path)
     geo.addAttrib(hou.attribType.Global, "mpfb_asset", "")
     geo.setGlobalAttribValue("mpfb_asset", path)
     # Body vertices this asset hides (MHCLO delete_verts), for mpfb::assemble. Kept on the first primitive so it
@@ -266,3 +271,109 @@ def cook_assemble(node, geo, human, assets):
     geo.merge(body)
     if assets is not None:
         geo.merge(assets)
+
+
+# ----------------------------------------------------------------------------------------------------------------
+# Rig (KineFX)
+
+def _rest_positions(geo):
+    if geo.findGlobalAttrib("mpfb_positions") is None:
+        raise hou.NodeError("The input must come from mpfb::human / mpfb::assemble (detail attribute mpfb_positions)")
+    return np.asarray(geo.attribValue("mpfb_positions"), dtype=np.float64).reshape(-1, 3)
+
+
+def _bone_transform(bone):
+    """Houdini row-vector 4x4 world transform of a bone: rows are its X, Y, Z axes, then the head."""
+    m = np.eye(4)
+    m[:3, :3] = bone["matrix"].T
+    m[3, :3] = bone["head"]
+    return m
+
+
+def cook_skeleton(node, geo, character):
+    """Rest skeleton as KineFX joints: a point per bone at its head with name and transform, a polyline from
+    each parent to its child."""
+    geo.clear()
+    bones = core.build_skeleton(node.parm("rig").evalAsString(), _rest_positions(character))
+    geo.addAttrib(hou.attribType.Point, "name", "")
+    geo.addAttrib(hou.attribType.Point, "transform", (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0))
+    geo.addAttrib(hou.attribType.Point, "mpfb_tail", (0.0, 0.0, 0.0))
+    points = geo.createPoints([hou.Vector3(*b["head"]) for b in bones])
+    index = {}
+    for point, bone in zip(points, bones):
+        point.setAttribValue("name", bone["name"])
+        point.setAttribValue("transform", tuple(bone["matrix"].T.ravel()))
+        point.setAttribValue("mpfb_tail", tuple(bone["tail"]))
+        index[bone["name"]] = point
+    for bone in bones:
+        if bone["parent"]:
+            poly = geo.createPolygon(False)
+            poly.addVertex(index[bone["parent"]])
+            poly.addVertex(index[bone["name"]])
+    geo.addAttrib(hou.attribType.Global, "mpfb_rig", "")
+    geo.setGlobalAttribValue("mpfb_rig", node.parm("rig").evalAsString())
+
+
+def cook_capture(node, geo):
+    """MPFB weights on the character as unpacked KineFX capture attributes (packed by the next node): body
+    points from the rig's weight file, asset points interpolated from the body like MPFB does."""
+    rig = node.parm("rig").evalAsString()
+    rest = _rest_positions(geo)
+    bones = core.build_skeleton(rig, rest)
+    names = [b["name"] for b in bones]
+    body, body_names = core.body_weights(rig)
+    order = [body_names.index(n) for n in names]
+    count = len(geo.points())
+    weights = np.zeros((count, len(names)))
+
+    index = geo.findPointAttrib("mpfb_index")
+    if index is not None:
+        idx = np.frombuffer(geo.pointIntAttribValuesAsString("mpfb_index"), dtype=np.int32)
+    vertex = geo.findPointAttrib("mpfb_vertex")
+    vidx = np.frombuffer(geo.pointIntAttribValuesAsString("mpfb_vertex"), dtype=np.int32) if vertex else None
+    asset_of_point = {}
+    if geo.findPrimAttrib("mpfb_asset") is not None:
+        for prim in geo.prims():
+            path = prim.attribValue("mpfb_asset")
+            if path:
+                for v in prim.vertices():
+                    asset_of_point[v.point().number()] = path
+    cache = {}
+    for number in range(count):
+        path = asset_of_point.get(number)
+        if path:
+            if path not in cache:
+                cache[path] = core.asset_weights(core.read_mhclo(path), rig, (body, body_names))[0][:, order]
+            weights[number] = cache[path][vidx[number]]
+        elif index is not None and idx[number] >= 0:
+            weights[number] = body[idx[number], order]
+
+    limit = node.evalParm("influences")
+    geo.addArrayAttrib(hou.attribType.Point, "boneCapture_index", hou.attribData.Int)
+    geo.addArrayAttrib(hou.attribType.Point, "boneCapture_data", hou.attribData.Float)
+    for point, row in zip(geo.points(), weights):
+        nz = np.nonzero(row)[0]
+        if limit > 0 and len(nz) > limit:
+            nz = nz[np.argsort(row[nz])[::-1][:limit]]
+        total = row[nz].sum()
+        if total <= 0:
+            continue
+        point.setAttribValue("boneCapture_index", [int(i) for i in nz])
+        point.setAttribValue("boneCapture_data", [float(row[i] / total) for i in nz])
+    capt = []
+    for bone in bones:
+        capt.extend(np.linalg.inv(_bone_transform(bone)).ravel().tolist())
+        capt.extend([1.0, 1.0, 1.0, 1.0])
+    geo.addArrayAttrib(hou.attribType.Global, "boneCapture_pCaptPath", hou.attribData.String)
+    geo.setGlobalAttribValue("boneCapture_pCaptPath", names)
+    geo.addArrayAttrib(hou.attribType.Global, "boneCapture_pCaptData", hou.attribData.Float, 20)
+    geo.setGlobalAttribValue("boneCapture_pCaptData", capt)
+    geo.addAttrib(hou.attribType.Global, "pCaptFrame", 0.0)
+    geo.addAttrib(hou.attribType.Global, "pCaptSkelRoot", "")
+
+
+def rig_menu():
+    out = []
+    for name in core.rig_names():
+        out += [name, name]
+    return out

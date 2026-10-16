@@ -16,6 +16,10 @@ CASES = [
                    "arms/upperarm-scale-horiz-decr-incr@left": -0.3}},
     {"macros": {"gender": 0.0, "age": 0.3, "weight": 0.2, "cupsize": 0.8, "firmness": 0.3},
      "race": {"asian": 0.7, "african": 0.3}, "modifiers": {}, "asset": "female_casualsuit01"},
+    {"macros": {"gender": 1.0, "muscle": 0.8, "height": 0.7}, "race": {"caucasian": 1.0}, "modifiers": {},
+     "asset": "shoes03", "rig": "game_engine"},
+    {"macros": {"gender": 1.0, "muscle": 0.8, "height": 0.7}, "race": {"caucasian": 1.0}, "modifiers": {},
+     "asset": "male_casualsuit02", "rig": "default"},
 ]
 
 
@@ -38,5 +42,19 @@ for i, case in enumerate(CASES):
     dc = np.abs(clothes - to_mh(ref["clothes"])).max()
     worst = max(worst, db, dc)
     print("case %d: body max error %.6f m, %s max error %.6f m" % (i, db, case["asset"], dc))
+    if case.get("rig"):
+        bones = {b["name"]: b for b in mh.build_skeleton(case["rig"], body)}
+        names = list(ref["bone_names"])
+        dh = max(np.abs(bones[n]["head"] - to_mh(ref["heads"][k:k + 1])[0]).max() for k, n in enumerate(names))
+        dt = max(np.abs(bones[n]["tail"] - to_mh(ref["tails"][k:k + 1])[0]).max() for k, n in enumerate(names))
+        dm = max(np.abs(bones[n]["matrix"] - mh.FROM_BLENDER @ ref["mats"][k]).max() for k, n in enumerate(names))
+        bw, bnames = mh.body_weights(case["rig"])
+        order = [bnames.index(n) for n in names]
+        dbw = np.abs(bw[:, order] - ref["body_w"]).max()
+        aw, _ = mh.asset_weights(mh.read_mhclo(mh.find_asset("clothes", case["asset"])), case["rig"], (bw, bnames))
+        daw = np.abs(aw[:, order] - ref["clothes_w"]).max()
+        worst = max(worst, dh, dt, dm * 0.01, dbw * 0.01, daw * 0.01)
+        print("   rig %s: %d bones, head %.6f tail %.6f orientation %.6f, body weights %.5f, %s weights %.5f" % (
+            case["rig"], len(names), dh, dt, dm, dbw, case["asset"], daw))
 print("PASS" if worst < 1e-4 else "FAIL", "worst %.6f m" % worst)
 sys.exit(0 if worst < 1e-4 else 1)
