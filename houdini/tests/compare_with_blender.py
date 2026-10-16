@@ -20,6 +20,8 @@ CASES = [
      "asset": "shoes03", "rig": "game_engine"},
     {"macros": {"gender": 1.0, "muscle": 0.8, "height": 0.7}, "race": {"caucasian": 1.0}, "modifiers": {},
      "asset": "male_casualsuit02", "rig": "default"},
+    {"macros": {"gender": 1.0, "muscle": 0.8}, "race": {"caucasian": 1.0}, "modifiers": {},
+     "asset": "male_casualsuit02", "rig": "mixamo"},
 ]
 
 

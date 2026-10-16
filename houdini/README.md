@@ -10,6 +10,7 @@ checks it to a micron).
 | `mpfb::fit_asset` | Fits an MPFB/MakeHuman asset (clothes, hair, eyes, eyebrows, eyelashes, teeth, tongue, proxy) to the human from its `.mhclo`: by name from the asset libraries or an explicit file. Tint and diffuse override for its material |
 | `mpfb::assemble` | Human plus merged assets, without the body faces the assets hide (their delete groups) |
 | `mpfb::rig` | Rigs the assembled character with one of MPFB's standard rigs (`game_engine` by default). Output 0: the character with KineFX `boneCapture` (body weights from the rig's weight file, asset weights interpolated from the body and overridden by the asset's `.mhw`, as MPFB does), output 1: the rest skeleton (joint points with `name` and `transform`, oriented exactly like MPFB's Blender bones) |
+| `mpfb::apex_character` | Turns the rig's outputs (skin, rest skeleton) into an APEX character: FK controls on every joint, Bone Deform, the controls mapped to the joints by name and, by default, a Full Body IK configuration. Feed it to *APEX Scene Add Character* and animate it with *APEX Scene Animate* |
 
 Each node's *Create Material* button makes a Principled shader in `/mat` named after the node from the asset's
 `.mhmat` (diffuse, alpha cut-out for hair, brows and lashes, normal map); primitives point to it with
@@ -23,6 +24,22 @@ skeleton). Export with the *glTF Character* ROP (`kinefx::gltfcharacter`): *Skin
 Pose* = output 1, *Animated Pose* = the posed skeleton; set *Clip Range* to *Render Current Frame* for a static
 character and *Max Texture Resolution* (a menu: `"1024"`) for game textures. Keep the rig's *Remove MPFB Attributes*
 on: the ROP stalls on the large `mpfb_*` bookkeeping attributes.
+
+## Animation with APEX
+
+`mpfb::rig` (output 0 and 1) → `mpfb::apex_character` → *APEX Scene Add Character* (input 2) → *APEX Scene
+Animate*: select the last one and press Enter in the viewport for the Animate state (FK controls, the Full Body IK
+tools, the channel list and keys on the timeline). *APEX Unpack Character* (output 3) gives the animated skeleton
+for the glTF Character ROP's *Animated Pose*.
+
+`python/mpfb_houdini/clips.py` handles a set of game clips on one timeline:
+
+- `layout(clips, sprites_dir, fps)`: frame ranges for clips given as `{"name", "reference", "loop"}`, sized from
+  the reference sprite sequence (`<dir>/<reference>/NNNN.png` and an optional `timing.json`) or `"frames"`.
+- `build_reference_track` and `setup_reference`: the reference frames of every clip as one numbered image
+  sequence, shown on a card behind the character (textured, unlit, with alpha) seen through an orthographic camera.
+- `export_clips(rop, clips, out)`: exports each clip with the ROP and merges them into one glb, one animation per
+  clip starting at 0, `_loop` added to the looping ones (Godot imports those as looping).
 
 ## Install
 
@@ -44,6 +61,7 @@ This writes a Houdini package (`~/Library/Preferences/houdini/22.0/packages/mpfb
 |---|---|
 | `python/mpfb_houdini/core.py` | Pure numpy port: OBJ, targets, macro formula, modifiers, MHCLO parsing and fitting, MHMAT |
 | `python/mpfb_houdini/sop.py` | Cook code of the HDAs, menus, materials |
+| `python/mpfb_houdini/clips.py` | Game clips on a timeline, sprite reference card, per-clip glTF export and merge |
 | `python/mpfb_houdini/preview.py` | Preview captures framed on a SOP (viewport flipbook in the UI) |
 | `build_hda.py` | Builds `otls/mpfb.hda` with `hython` |
 | `tests/compare_with_blender.py` | Parity with MPFB in Blender (body and fitted assets for three characters) |
@@ -58,7 +76,7 @@ hython houdini/tests/rig_test.py /tmp/rigged.glb
 ```
 
 `compare_with_blender.py` also checks rigs: bone heads, tails and orientations, body and asset weights for the
-`game_engine` and `default` rigs.
+`game_engine`, `default` and `mixamo` rigs.
 
 Not there yet: MPFB's pose files and animations, asset sub-rigs (`.mpfbskel`), Rigify, proxies/topologies as a
 replacement body, MakeClothes in Houdini.

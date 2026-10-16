@@ -93,6 +93,42 @@ def build_rig():
     geo.destroy()
 
 
+def build_apex_character():
+    """mpfb::apex_character: rigged character (skin, rest skeleton) in, an APEX character folder out, ready for
+    APEX Scene Add Character / Scene Animate: FK controls on every joint, bone deformation and the full body IK
+    configuration of the Animate state."""
+    geo = hou.node("/obj").createNode("geo", "mpfb_build_apex")
+    sub = geo.createNode("subnet", "apex_character")
+    skin, skeleton = sub.indirectInputs()[0], sub.indirectInputs()[1]
+    pack = sub.createNode("apex::packcharacter", "pack")
+    pack.setInput(1, skin)
+    pack.setInput(2, skeleton)
+    pack.setInput(3, skeleton)
+    pack.parm("addbaserig").set(True)
+    mapping = sub.createNode("apex::mapcharacter", "map")
+    mapping.setInput(0, pack)
+    mapping.parm("rigpath").set("/Base.rig")
+    mapping.parm("skeletonpath").set("/Base.skel")
+    mapping.parm("mapbyname").set(True)
+    configure = sub.createNode("apex::configurecharacter", "configure")
+    configure.setInput(0, mapping)
+    configure.parm("enablefbikconfig").setExpression('ch("../fbik")')
+    out = sub.createNode("output", "output0")
+    out.setInput(0, configure)
+    out.setDisplayFlag(True)
+    sub.layoutChildren()
+    hda = sub.createDigitalAsset(name="mpfb::apex_character::1.0", hda_file_name=OTL,
+                                 description="MPFB APEX Character", min_num_inputs=2, max_num_inputs=2)
+    definition = hda.type().definition()
+    group = definition.parmTemplateGroup()
+    group.append(hou.ToggleParmTemplate("fbik", "Full Body IK", default_value=True,
+                                        help="Configure the character for the Animate state's full body IK tools"))
+    definition.setParmTemplateGroup(group)
+    definition.setIcon("SOP_apex-packcharacter")
+    definition.save(OTL)
+    geo.destroy()
+
+
 def assemble_parms():
     return [hou.ToggleParmTemplate("mask_body", "Hide Body Under Assets", default_value=True,
                                    help="Remove body faces listed in the assets' delete_verts (MPFB delete groups)")]
@@ -194,6 +230,7 @@ build("human", "MPFB Human", HUMAN_COOK, human_parms(), 0)
 build("fit_asset", "MPFB Fit Asset", FIT_COOK, fit_parms(), 1)
 build("assemble", "MPFB Assemble", ASSEMBLE_COOK, assemble_parms(), 2)
 build_rig()
+build_apex_character()
 print("built", OTL, [d.nodeTypeName() for d in hou.hda.definitionsInFile(OTL)])
 sys.stdout.flush()
 os._exit(0)  # skip Houdini's teardown (the HoudiniMCP startup plugin crashes there)

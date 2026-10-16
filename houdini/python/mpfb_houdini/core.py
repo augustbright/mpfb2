@@ -418,7 +418,9 @@ def rig_names():
 def load_rig(name):
     with open(os.path.join(data_root(), "rigs", "standard", "rig.%s.json" % name), "r", encoding="utf-8") as f:
         definition = json.load(f)
-    return {k: v for k, v in definition.items() if isinstance(v, dict) and "head" in v}
+    # Newer rig files (version 100+) keep the bones under "bones" next to a header.
+    bones = definition.get("bones", definition)
+    return {k: v for k, v in bones.items() if isinstance(v, dict) and "head" in v}
 
 
 @functools.lru_cache(maxsize=16)
